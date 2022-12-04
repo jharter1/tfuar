@@ -9,21 +9,17 @@ terraform {
   }
 }
 
-
-provider "aws" {
-  region = "us-east-2"
-}
-
 resource "aws_launch_configuration" "launch_config_1" {
   image_id        = "ami-0d5bf08bc8017c83b"
-  instance_type   = "t2.micro"
+  instance_type   = var.instance_type
   security_groups = [aws_security_group.instance_grouper.id]
 
-  user_data = <<-EOF
-              #!/bin/bash
-              echo "Hello there, big guy" > index.html
-              nohup busybox httpd -f -p ${var.server_port} &
-              EOF
+  user_data = templatefile("${path.module}/user-data.sh", {
+    server_port = var.server_port
+    db_address  = data.terraform_remote_state.db.outputs.address
+    db_port     = data.terraform_remote_state.db.outputs.port
+  })
+
   lifecycle {
     create_before_destroy = true
   }
@@ -36,8 +32,12 @@ resource "aws_autoscaling_group" "group_1" {
   target_group_arns = [aws_lb_target_group.targetron.arn]
   health_check_type = "ELB"
 
-  min_size = 2
-  max_size = 5
+  min_size = var.min_size
+  max_size = var.max_size
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   tag {
     key                 = "Name"
@@ -48,7 +48,7 @@ resource "aws_autoscaling_group" "group_1" {
 }
 
 resource "aws_security_group" "instance_grouper" {
-  name = var.security_group_name
+  name = var.instance_security_group_name
 
   lifecycle {
     create_before_destroy = true
@@ -84,7 +84,7 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_security_group" "albie" {
-  name = "terraform_alb_sg"
+  name = "${var.cluster_name}-alb"
   # the following lifecycle rule is vital to tf on aws; check out the registry
   lifecycle {
     create_before_destroy = true
@@ -105,7 +105,7 @@ resource "aws_security_group" "albie" {
 
 resource "aws_lb_target_group" "targetron" {
   lifecycle {
-    create_before_destroy = true
+    create_before_destroy = false
   }
   name = var.alb_name
 
@@ -150,36 +150,13 @@ data "aws_subnets" "default" {
   }
 }
 
-variable "jacks_security_group_name" {
-  description = "Group name for instance(s)"
-  type        = string
-  default     = "basic_group"
+data "terraform_remote_state" "db" {
+  backend = "s3"
+
+  config = {
+    bucket = var.db_remote_state_bucket
+    key    = var.db_remote_state_key
+    region = "us-east-2"
+  }
 }
 
-variable "server_port" {
-  description = "Port number used for HTTP requests"
-  type        = number
-  default     = 8088
-}
-
-variable "alb_name" {
-  description = "The name of the ALB"
-  type        = string
-  default     = "albie-the-dragon"
-}
-
-variable "security_group_name" {
-  description = "The name of the good ol group"
-  type        = string
-  default     = "one_abnormal_group"
-}
-
-output "port_address" {
-  description = "descriptions are good for your teammates"
-  value       = var.server_port
-}
-
-output "alb_dns_name" {
-  value       = aws_lb.balancio.dns_name
-  description = "ol LB's domain, my dude"
-}
