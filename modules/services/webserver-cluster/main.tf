@@ -16,6 +16,7 @@ resource "aws_launch_configuration" "launch_config_1" {
 
   user_data = templatefile("${path.module}/user-data.sh", {
     server_port = var.server_port
+    cluster_name = var.cluster_name
     db_address  = data.terraform_remote_state.db.outputs.address
     db_port     = data.terraform_remote_state.db.outputs.port
   })
@@ -28,9 +29,8 @@ resource "aws_launch_configuration" "launch_config_1" {
 resource "aws_autoscaling_group" "group_1" {
   launch_configuration = aws_launch_configuration.launch_config_1.name
   vpc_zone_identifier  = data.aws_subnets.default.ids
-
-  target_group_arns = [aws_lb_target_group.targetron.arn]
-  health_check_type = "ELB"
+  target_group_arns    = [aws_lb_target_group.targetron.arn]
+  health_check_type    = "ELB"
 
   min_size = var.min_size
   max_size = var.max_size
@@ -41,29 +41,31 @@ resource "aws_autoscaling_group" "group_1" {
 
   tag {
     key                 = "Name"
-    value               = "terraformed-asg-segment"
+    value               = var.cluster_name
     propagate_at_launch = true
 
   }
 }
 
 resource "aws_security_group" "instance_grouper" {
-  name = var.instance_security_group_name
-
+  name = "${var.cluster_name}-instance-grouper"
   lifecycle {
     create_before_destroy = true
   }
+}
 
-  ingress {
-    from_port   = var.server_port
-    to_port     = var.server_port
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+resource "aws_security_group_rule" "allow_server_http_inbound" {
+  type              = "ingress"
+  security_group_id = aws_security_group.instance_grouper.id
+
+  from_port   = var.server_port
+  to_port     = var.server_port
+  protocol    = local.tcp_protocol
+  cidr_blocks = local.all_ips
 }
 
 resource "aws_lb" "balancio" {
-  name               = var.alb_name
+  name               = var.cluster_name
   load_balancer_type = "application"
   subnets            = data.aws_subnets.default.ids
   security_groups    = [aws_security_group.albie.id]
@@ -71,44 +73,26 @@ resource "aws_lb" "balancio" {
 
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.balancio.arn
-  port              = 80
-  protocol          = "HTTP"
+
+  port = local.http_port
+
+  protocol = "HTTP"
+
   default_action {
     type = "fixed-response"
     fixed_response {
       content_type = "text/plain"
-      message_body = "404 my dude"
+      message_body = "404: page not found"
       status_code  = 404
     }
   }
 }
 
-resource "aws_security_group" "albie" {
-  name = "${var.cluster_name}-alb"
-  # the following lifecycle rule is vital to tf on aws; check out the registry
+resource "aws_lb_target_group" "targetron" {
   lifecycle {
     create_before_destroy = true
   }
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_lb_target_group" "targetron" {
-  lifecycle {
-    create_before_destroy = false
-  }
-  name = var.alb_name
-
+  name     = var.cluster_name
   port     = var.server_port
   protocol = "HTTP"
   vpc_id   = data.aws_vpc.default.id
@@ -137,6 +121,43 @@ resource "aws_lb_listener_rule" "big_earsky" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.targetron.arn
   }
+}
+
+resource "aws_security_group" "albie" {
+  name = "${var.cluster_name}-alb"
+  # the following lifecycle rule is vital to tf on aws; check out the registry
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_security_group_rule" "allow_http_inbound" {
+  type              = "ingress"
+  security_group_id = aws_security_group.albie.id
+
+  from_port   = local.http_port
+  to_port     = local.http_port
+  protocol    = local.tcp_protocol
+  cidr_blocks = local.all_ips
+}
+
+
+resource "aws_security_group_rule" "allow_all_outbound" {
+  type              = "egress"
+  security_group_id = aws_security_group.albie.id
+
+  from_port   = local.any_port
+  to_port     = local.any_port
+  protocol    = local.any_protocol
+  cidr_blocks = local.all_ips
+}
+
+locals {
+  http_port    = 80
+  any_port     = 0
+  any_protocol = -1
+  tcp_protocol = "tcp"
+  all_ips      = ["0.0.0.0/0"]
 }
 
 data "aws_vpc" "default" {

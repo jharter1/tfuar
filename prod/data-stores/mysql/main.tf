@@ -17,14 +17,14 @@ terraform {
   }
 }
 
-resource "aws_db_instance" "dby" {
-  identifier_prefix = "santana-dby"
+resource "aws_db_instance" "dbx" {
+  identifier_prefix = "santana-dbx"
   engine = "mysql"
   allocated_storage = 10
   instance_class = "db.t2.micro"
   skip_final_snapshot = true
 
-  db_name = "santana_dba"
+  db_name = "prod_db"
   username = "admin"
   password = "superSecretPass122022"
 }

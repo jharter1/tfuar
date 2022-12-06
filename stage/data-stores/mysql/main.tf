@@ -9,7 +9,7 @@ provider "aws" {
 terraform {
   backend "s3" {
     bucket = "state-bucket-122022"
-    key = "prod/data-stores/mysql/terraform.tfstate"
+    key = "stage/data-stores/mysql/terraform.tfstate"
     region = "us-east-2"
 
     dynamodb_table = "terraform-locker-table"
@@ -24,7 +24,7 @@ resource "aws_db_instance" "dby" {
   instance_class = "db.t2.micro"
   skip_final_snapshot = true
 
-  db_name = "prod_db"
+  db_name = "stage_db"
   username = "admin"
   password = "superSecretPass122022"
 }
